@@ -230,12 +230,11 @@ fn run_lifecycle_commands(container_id: &str, devcontainer_path: &PathBuf) -> Re
 
 #[derive(Parser)]
 #[command(author, version, about, long_about = None,
-	after_help=r#"EXAMPLES:
-    mt sh strict
-    mt sh unstrict
-    mt dbclone db1 db2
-"#
-	)]
+    after_help = format!(
+        "{}\n  mt start\n  mt sh\n  mt sh strict\n  mt sh unstrict\n  mt sh dbclone db1 db2\n  mt sql\n  mt sql SELECT 1",
+        "\x1b[1;4mExamples\x1b[0m:"  // Bold + Underline
+    )
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -245,6 +244,8 @@ struct Cli {
 enum Commands {
     #[command(about = "Launch the containerised development environment")]
     Start,
+    #[command(about = "Stop the containerised development environment")]
+    Stop,
     #[command(about = "Run an interactive shell within the development container")]
     Sh {
         #[arg(
@@ -254,11 +255,11 @@ enum Commands {
         )]
         command: Vec<String>,
     },
-    #[command(about = "Execute a local file as a script in the development container")]
-    Exec {
-        #[arg()]
-        path: PathBuf,
-    },
+    // #[command(about = "Execute a local file as a script in the development container")]
+    // Exec {
+    //     #[arg()]
+    //     path: PathBuf,
+    // },
     #[command(about = "Run a SQL command")]
     SQL {
         #[arg(
@@ -276,8 +277,8 @@ enum Commands {
     },
     #[command(about = "Outputs information about the running development containers")]
     Info,
-    #[command(about = "Rebuilds the development container")]
-    Rebuild,
+    // #[command(about = "Rebuilds the development container")]
+    // Rebuild,
 }
 
 fn main() -> Result<()> {
@@ -288,6 +289,10 @@ fn main() -> Result<()> {
             let path = git_worktree_path()?;
             let container_id = up(&path)?;
             dexec(&container_id, "start")?;
+        }
+        Commands::Stop => {
+            let container_id = get_container_id("minitol-app")?;
+            dexec(&container_id, "stop")?;
         }
         Commands::Sh { command } => {
             let container_id = get_container_id("minitol-app")?;
@@ -335,31 +340,29 @@ fn main() -> Result<()> {
             let worktree = dexec_capture(&container_id, "cat /tmp/worktree 2>/dev/null")?;
 
             println!("Worktree Path: {}", worktree.trim());
-        }
+        } // Commands::Exec { path } => {
+          //     let container_id = get_container_id("minitol-app");
+          //     todo!("Execute path");
+          // }
 
-        Commands::Exec { path } => {
-            let container_id = get_container_id("minitol-app");
-            todo!("Execute path");
-        }
-
-        Commands::Rebuild => {
-            let path = git_worktree_path()?;
-
-            // 1. Stop and remove existing containers
-            down(&path)?;
-
-            // 2. Rebuild with fresh images
-            build(&path)?;
-
-            // 3. Start new containers
-            let container_id = up(&path)?;
-
-            // 4. Execute lifecycle commands
-            let devcontainer_path = path.join(".devcontainer");
-            run_lifecycle_commands(&container_id, &devcontainer_path)?;
-
-            println!("Rebuild complete. New container ID: {}", container_id);
-        }
+          // Commands::Rebuild => {
+          //     let path = git_worktree_path()?;
+          //
+          //     // 1. Stop and remove existing containers
+          //     down(&path)?;
+          //
+          //     // 2. Rebuild with fresh images
+          //     build(&path)?;
+          //
+          //     // 3. Start new containers
+          //     let container_id = up(&path)?;
+          //
+          //     // 4. Execute lifecycle commands
+          //     let devcontainer_path = path.join(".devcontainer");
+          //     run_lifecycle_commands(&container_id, &devcontainer_path)?;
+          //
+          //     println!("Rebuild complete. New container ID: {}", container_id);
+          // }
     }
     Ok(())
 }
