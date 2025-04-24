@@ -156,11 +156,28 @@ fn git_worktree_path() -> Result<PathBuf> {
 fn up(worktree_path: &PathBuf) -> Result<String> {
     let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
     let abs_path_str = abs_path.to_string_lossy();
+    print!("path: {:?}", abs_path);
+
+    // Add existence check in your code
+    if !abs_path.exists() {
+        return Err(CliError::Docker(format!(
+            "Compose file not found at: {}",
+            abs_path.display()
+        )));
+    }
+
+    Command::new("echo")
+        .args(["Hello", "World"])
+        .stdout(Stdio::inherit())
+        .status()?;
 
     let output = Command::new("docker")
         .args(["compose", "-p", "minitol", "-f", &abs_path_str, "up", "-d"])
+        .stdout(Stdio::inherit())
         .output()
         .map_err(|e| CliError::Docker(format!("Failed to execute docker compose up: {}", e)))?;
+
+    //  docker compose -p minitol -f ~tol/staging/.devcontainer/docker-compose.yml up -d
 
     if !output.status.success() {
         eprintln!(
@@ -243,7 +260,10 @@ struct Cli {
 #[derive(Subcommand)]
 enum Commands {
     #[command(about = "Launch the containerised development environment")]
-    Start,
+    Start {
+        #[arg(help = "Path to git worktree containing developer environment")]
+        path: Option<PathBuf>,
+    },
     #[command(about = "Stop the containerised development environment")]
     Stop,
     #[command(about = "Run an interactive shell within the development container")]
@@ -285,9 +305,12 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     match &cli.command {
-        Commands::Start => {
-            let path = git_worktree_path()?;
-            let container_id = up(&path)?;
+        Commands::Start { path } => {
+            let resolved_path = match path {
+                Some(p) => p,
+                None => &git_worktree_path()?,
+            };
+            let container_id = up(&resolved_path)?;
             dexec(&container_id, "start")?;
         }
         Commands::Stop => {
