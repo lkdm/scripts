@@ -18,6 +18,8 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 enum CliError {
+    #[error("JSON parse error: {0}")]
+    Json(#[from] serde_json::Error),
     #[error("Command execution failed: {0}")]
     Command(#[from] std::io::Error),
     #[error("Invalid UTF-8 output: {0}")]
@@ -28,6 +30,8 @@ enum CliError {
     Git(String),
     #[error("Docker error: {0}")]
     Docker(String),
+    #[error("Configuration error: {0}")]
+    Config(String),
 }
 
 type Result<T> = std::result::Result<T, CliError>;
@@ -177,6 +181,53 @@ fn up(worktree_path: &PathBuf) -> Result<String> {
     Ok(container_id)
 }
 
+fn down(worktree_path: &PathBuf) -> Result<()> {
+    let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
+    let abs_path_str = abs_path.to_string_lossy();
+
+    Command::new("docker")
+        .args(["compose", "-p", "minitol", "-f", &abs_path_str, "down"])
+        .execute_interactive()
+}
+
+fn build(worktree_path: &PathBuf) -> Result<()> {
+    let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
+    let abs_path_str = abs_path.to_string_lossy();
+
+    Command::new("docker")
+        .args([
+            "compose",
+            "-p",
+            "minitol",
+            "-f",
+            &abs_path_str,
+            "build",
+            "--no-cache",
+        ])
+        .execute_interactive()
+}
+
+fn run_lifecycle_commands(container_id: &str, devcontainer_path: &PathBuf) -> Result<()> {
+    let config_path = devcontainer_path.join("devcontainer.json");
+    let config = std::fs::read_to_string(&config_path)
+        .map_err(|e| CliError::Docker(format!("Failed to read devcontainer.json: {}", e)))?;
+
+    let config: serde_json::Value = serde_json::from_str(&config)
+        .map_err(|e| CliError::Docker(format!("Invalid devcontainer.json: {}", e)))?;
+
+    // Post-create command
+    if let Some(cmd) = config["postCreateCommand"].as_str() {
+        dexec(container_id, cmd)?;
+    }
+
+    // Post-start command (runs on every start)
+    if let Some(cmd) = config["postStartCommand"].as_str() {
+        dexec(container_id, cmd)?;
+    }
+
+    Ok(())
+}
+
 #[derive(Parser)]
 #[command(author, version, about, long_about = None,
 	after_help=r#"EXAMPLES:
@@ -203,6 +254,11 @@ enum Commands {
         )]
         command: Vec<String>,
     },
+    #[command(about = "Execute a local file as a script in the development container")]
+    Exec {
+        #[arg()]
+        path: PathBuf,
+    },
     #[command(about = "Run a SQL command")]
     SQL {
         #[arg(
@@ -220,6 +276,8 @@ enum Commands {
     },
     #[command(about = "Outputs information about the running development containers")]
     Info,
+    #[command(about = "Rebuilds the development container")]
+    Rebuild,
 }
 
 fn main() -> Result<()> {
@@ -277,6 +335,30 @@ fn main() -> Result<()> {
             let worktree = dexec_capture(&container_id, "cat /tmp/worktree 2>/dev/null")?;
 
             println!("Worktree Path: {}", worktree.trim());
+        }
+
+        Commands::Exec { path } => {
+            let container_id = get_container_id("minitol-app");
+            todo!("Execute path");
+        }
+
+        Commands::Rebuild => {
+            let path = git_worktree_path()?;
+
+            // 1. Stop and remove existing containers
+            down(&path)?;
+
+            // 2. Rebuild with fresh images
+            build(&path)?;
+
+            // 3. Start new containers
+            let container_id = up(&path)?;
+
+            // 4. Execute lifecycle commands
+            let devcontainer_path = path.join(".devcontainer");
+            run_lifecycle_commands(&container_id, &devcontainer_path)?;
+
+            println!("Rebuild complete. New container ID: {}", container_id);
         }
     }
     Ok(())
