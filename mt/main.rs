@@ -1,6 +1,6 @@
 // Install:
 //
-//   cargo install --git https://github.com/lkdm/scripts/cargo mt
+//   cargo install --git https://github.com/lkdm/scripts mt
 //
 // Usage:
 //
