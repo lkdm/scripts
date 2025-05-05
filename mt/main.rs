@@ -295,6 +295,8 @@ enum Commands {
         #[arg(short, long)]
         password: Option<String>,
     },
+    #[command(about = "View start script logs")]
+    Logs,
     #[command(about = "Outputs information about the running development containers")]
     Info,
     // #[command(about = "Rebuilds the development container")]
@@ -311,7 +313,7 @@ fn main() -> Result<()> {
                 None => &git_worktree_path()?,
             };
             let container_id = up(&resolved_path)?;
-            dexec(&container_id, "start")?;
+            dexec(&container_id, "start | tee /tmp/mt")?;
         }
         Commands::Stop => {
             let container_id = get_container_id("minitol-app")?;
@@ -326,7 +328,6 @@ fn main() -> Result<()> {
             };
             dexec(&container_id, &command_string)?;
         }
-
         Commands::SQL {
             query,
             user,
@@ -354,7 +355,10 @@ fn main() -> Result<()> {
 
             dexec(&container_id, &mysql_cmd)?;
         }
-
+        Commands::Logs => {
+            let container_id = get_container_id("minitol-app")?;
+            dexec(&container_id, "tail -f /tmp/mt")?;
+        }
         Commands::Info => {
             let container_id = get_container_id("minitol-app")?;
 
