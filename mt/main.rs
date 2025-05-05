@@ -174,24 +174,24 @@ fn up(worktree_path: &PathBuf) -> Result<String> {
     let output = Command::new("docker")
         .args(["compose", "-p", "minitol", "-f", &abs_path_str, "up", "-d"])
         .stdout(Stdio::inherit())
-        .output()
+        .status()
         .map_err(|e| CliError::Docker(format!("Failed to execute docker compose up: {}", e)))?;
 
     //  docker compose -p minitol -f ~tol/staging/.devcontainer/docker-compose.yml up -d
 
-    if !output.status.success() {
-        eprintln!(
-            "Docker compose up failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-        return Err(CliError::Docker(format!(
-            "docker compose up failed with exit code: {}",
-            output.status
-        )));
-    }
+    // if !output.status.success() {
+    //     eprintln!(
+    //         "Docker compose up failed:\n{}",
+    //         String::from_utf8_lossy(&output.stderr)
+    //     );
+    //     return Err(CliError::Docker(format!(
+    //         "docker compose up failed with exit code: {}",
+    //         output.status
+    //     )));
+    // }
 
     let container_id = get_container_id("minitol-app")?;
-    dexec_capture(
+    dexec(
         &container_id,
         &format!("echo '{}' > /tmp/worktree", &abs_path_str),
     )?;
