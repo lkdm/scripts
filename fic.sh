@@ -46,6 +46,12 @@ fi
 
 mkdir -p "$DIR"
 
+# Add two line breaks to the file, if it exists
+if [ -f "$FILE" ] && [ -s "$FILE" ]; then
+    echo -e "\n\n" >> "$FILE"
+fi
+
+
 echo "Journal entry mode. Type your text. Type ':q' to quit."
 
 tput civis
