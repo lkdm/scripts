@@ -11,8 +11,10 @@
 use clap::{Parser, Subcommand};
 use rpassword::prompt_password;
 use std::{
-    path::PathBuf,
+    path::{Path, PathBuf},
     process::{Command, Stdio},
+    thread,
+    time::Duration,
 };
 use thiserror::Error;
 
@@ -153,76 +155,120 @@ fn git_worktree_path() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-fn up(worktree_path: &PathBuf) -> Result<String> {
-    let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
-    let abs_path_str = abs_path.to_string_lossy();
-    print!("path: {:?}", abs_path);
+/// Attempt to use docker-compose.override.yml
+fn preferred_compose_paths(worktree_path: &Path) -> Vec<PathBuf> {
+    let base = worktree_path.join(".devcontainer/docker-compose.yml");
+    let override_path = worktree_path.join(".devcontainer/docker-compose.override.yml");
+    if override_path.exists() {
+        println!(
+            "\x1b[33m⚠️  Using ./.devcontainer/docker-compose.override.yml as an override.\n\tBase: ./.devcontainer/docker-compose.yml\x1b[0m"
+        );
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        vec![base, override_path]
+    } else {
+        println!(
+            "\x1b[33m⚠️  Could not find a ./.devcontainer/docker-compose.override.yml override file.\n\tUsing ./.devcontainer/docker-compose.yml only.\x1b[0m"
+        );
+        std::thread::sleep(std::time::Duration::from_secs(3));
+        vec![base]
+    }
+}
 
-    // Add existence check in your code
-    if !abs_path.exists() {
-        return Err(CliError::Docker(format!(
-            "Compose file not found at: {}",
-            abs_path.display()
-        )));
+fn up(worktree_path: &Path) -> Result<String> {
+    let compose_paths = preferred_compose_paths(worktree_path);
+
+    // Existence check
+    for path in &compose_paths {
+        if !path.exists() {
+            return Err(CliError::Docker(format!(
+                "Compose file not found at: {}",
+                path.display()
+            )));
+        }
     }
 
-    Command::new("echo")
-        .args(["Hello", "World"])
-        .stdout(Stdio::inherit())
-        .status()?;
+    // Collect file paths as Strings
+    let file_strings: Vec<String> = compose_paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    // Build args
+    let mut args = vec!["compose", "-p", "minitol"];
+    for file in &file_strings {
+        args.push("-f");
+        args.push(file);
+    }
+    args.extend(&["up", "-d"]);
 
     let output = Command::new("docker")
-        .args(["compose", "-p", "minitol", "-f", &abs_path_str, "up", "-d"])
+        .args(&args)
         .stdout(Stdio::inherit())
         .status()
         .map_err(|e| CliError::Docker(format!("Failed to execute docker compose up: {}", e)))?;
 
-    //  docker compose -p minitol -f ~tol/staging/.devcontainer/docker-compose.yml up -d
-
-    // if !output.status.success() {
-    //     eprintln!(
-    //         "Docker compose up failed:\n{}",
-    //         String::from_utf8_lossy(&output.stderr)
-    //     );
-    //     return Err(CliError::Docker(format!(
-    //         "docker compose up failed with exit code: {}",
-    //         output.status
-    //     )));
-    // }
-
     let container_id = get_container_id("minitol-app")?;
     dexec(
         &container_id,
-        &format!("echo '{}' > /tmp/worktree", &abs_path_str),
+        &format!(
+            "echo '{}' > /tmp/worktree",
+            compose_paths.last().unwrap().to_string_lossy()
+        ),
     )?;
     Ok(container_id)
 }
 
-fn down(worktree_path: &PathBuf) -> Result<()> {
-    let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
-    let abs_path_str = abs_path.to_string_lossy();
+fn down(worktree_path: &Path) -> Result<()> {
+    let compose_paths = preferred_compose_paths(worktree_path);
+
+    // Existence check
+    for path in &compose_paths {
+        if !path.exists() {
+            return Err(CliError::Docker(format!(
+                "Compose file not found at: {}",
+                path.display()
+            )));
+        }
+    }
+
+    // Collect file paths as Strings
+    let file_strings: Vec<String> = compose_paths
+        .iter()
+        .map(|p| p.to_string_lossy().to_string())
+        .collect();
+
+    // Build args with all -f flags
+    let mut args = vec!["compose", "-p", "minitol"];
+    for file in &file_strings {
+        args.push("-f");
+        args.push(file);
+    }
+    args.push("down");
 
     Command::new("docker")
-        .args(["compose", "-p", "minitol", "-f", &abs_path_str, "down"])
-        .execute_interactive()
+        .args(&args)
+        .status()
+        .map_err(|e| CliError::Docker(format!("Failed to execute docker compose down: {}", e)))?;
+
+    Ok(())
 }
 
-fn build(worktree_path: &PathBuf) -> Result<()> {
-    let abs_path = worktree_path.join(".devcontainer/docker-compose.yml");
-    let abs_path_str = abs_path.to_string_lossy();
-
-    Command::new("docker")
-        .args([
-            "compose",
-            "-p",
-            "minitol",
-            "-f",
-            &abs_path_str,
-            "build",
-            "--no-cache",
-        ])
-        .execute_interactive()
-}
+// fn build(worktree_path: &PathBuf) -> Result<()> {
+//     let abs_path = preferred_compose_paths(worktree_path);
+//     let abs_path_str = abs_path.to_string_lossy();
+//     //
+//     // Command::new("docker")
+//     //     .args([
+//     //         "compose",
+//     //         "-p",
+//     //         "minitol",
+//     //         "-f",
+//     //         &abs_path_str,
+//     //         "build",
+//     //         "--no-cache",
+//     //     ])
+//     //     .execute_interactive()
+// }
 
 fn run_lifecycle_commands(container_id: &str, devcontainer_path: &PathBuf) -> Result<()> {
     let config_path = devcontainer_path.join("devcontainer.json");
