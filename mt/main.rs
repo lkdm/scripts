@@ -158,20 +158,31 @@ fn git_worktree_path() -> Result<PathBuf> {
 /// Attempt to use docker-compose.override.yml
 fn preferred_compose_paths(worktree_path: &Path) -> Vec<PathBuf> {
     let base = worktree_path.join(".devcontainer/docker-compose.yml");
-    let override_path = worktree_path.join(".devcontainer/docker-compose.override.yml");
-    if override_path.exists() {
+    let override1 = worktree_path.join(".devcontainer/docker-compose.override.yml");
+    let override2 = dirs::home_dir().map(|h| h.join(".tolconfig/docker-compose.override.yml"));
+
+    let mut files = vec![base.clone()];
+    if override1.exists() {
+        files.push(override1.clone());
         println!(
             "\x1b[33m⚠️  Using ./.devcontainer/docker-compose.override.yml as an override.\n\tBase: ./.devcontainer/docker-compose.yml\x1b[0m"
         );
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        vec![base, override_path]
-    } else {
-        println!(
-            "\x1b[33m⚠️  Could not find a ./.devcontainer/docker-compose.override.yml override file.\n\tUsing ./.devcontainer/docker-compose.yml only.\x1b[0m"
-        );
-        std::thread::sleep(std::time::Duration::from_secs(3));
-        vec![base]
     }
+    if let Some(ref override2_path) = override2 {
+        if override2_path.exists() {
+            files.push(override2_path.clone());
+            println!(
+                "\x1b[33m⚠️  Using ~/.tolconfig/docker-compose.override.yml as an additional override.\x1b[0m"
+            );
+        }
+    }
+    if files.len() == 1 {
+        println!(
+            "\x1b[33m⚠️  Using base ./.devcontainer/docker-compose.yml (no overrides found).\x1b[0m"
+        );
+    }
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    files
 }
 
 fn up(worktree_path: &Path) -> Result<String> {
@@ -291,11 +302,29 @@ fn run_lifecycle_commands(container_id: &str, devcontainer_path: &PathBuf) -> Re
     Ok(())
 }
 
-#[derive(Parser)]
-#[command(author, version, about, long_about = None,
-    after_help = format!(
-        "{}\n  mt start\n  mt sh\n  mt sh strict\n  mt sh unstrict\n  mt sh dbclone db1 db2\n  mt sql\n  mt sql SELECT 1",
-        "\x1b[1;4mExamples\x1b[0m:"  // Bold + Underline
+#[derive(clap::Parser)]
+#[command(
+    author,
+    version,
+    about,
+    long_about = None,
+    after_help = concat!(
+        "\x1b[1;4mExamples\x1b[0m:\n",
+        "  mt start\n",
+        "  mt sh\n",
+        "  mt sh strict\n",
+        "  mt sh unstrict\n",
+        "  mt sh dbclone db1 db2\n",
+        "  mt sql\n",
+        "  mt sql SELECT 1\n",
+        "\n",
+        "\n",
+        "\x1b[1;4mConfiguring Minitol\x1b[0m:\n",
+        "This tool automatically applies Docker Compose overrides in the following order:\n",
+        "  1. /path/to/repo/.devcontainer/docker-compose.yml (base)\n",
+        "  2. /path/to/repo/.devcontainer/docker-compose.override.yml (if present)\n",
+        "  3. ~/.tolconfig/docker-compose.override.yml (if present)\n",
+        "Later files override earlier ones. Missing files are skipped.\n"
     )
 )]
 struct Cli {
