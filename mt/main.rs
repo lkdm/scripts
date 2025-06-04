@@ -8,13 +8,14 @@
 //   mt sh
 //
 
+// TODO: Fetch DB Password from 1Password, meaning you will need configuration (likely store in
+// ~/.tolconfig)
+
 use clap::{Parser, Subcommand};
 use rpassword::prompt_password;
 use std::{
     path::{Path, PathBuf},
     process::{Command, Stdio},
-    thread,
-    time::Duration,
 };
 use thiserror::Error;
 
@@ -32,8 +33,6 @@ enum CliError {
     Git(String),
     #[error("Docker error: {0}")]
     Docker(String),
-    #[error("Configuration error: {0}")]
-    Config(String),
 }
 
 type Result<T> = std::result::Result<T, CliError>;
@@ -44,6 +43,7 @@ trait CommandExt {
 }
 
 impl CommandExt for Command {
+    /// Executes a command, routing output and errors to stout and sterr
     fn execute_interactive(&mut self) -> Result<()> {
         let status = self
             .stdin(Stdio::inherit())
@@ -61,6 +61,7 @@ impl CommandExt for Command {
         Ok(())
     }
 
+    /// Executes a command, but routes outputs and errors to a Rust Result
     fn execute_capture(&mut self) -> Result<String> {
         let output = self.output().map_err(CliError::Command)?;
 
@@ -155,7 +156,7 @@ fn git_worktree_path() -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-/// Attempt to use docker-compose.override.yml
+/// Finds the correct docker-compose
 fn preferred_compose_paths(worktree_path: &Path) -> Vec<PathBuf> {
     let base = worktree_path.join(".devcontainer/docker-compose.yml");
     let override1 = worktree_path.join(".devcontainer/docker-compose.override.yml");
@@ -212,7 +213,7 @@ fn up(worktree_path: &Path) -> Result<String> {
     }
     args.extend(&["up", "-d"]);
 
-    let output = Command::new("docker")
+    Command::new("docker")
         .args(&args)
         .stdout(Stdio::inherit())
         .status()
@@ -260,44 +261,6 @@ fn down(worktree_path: &Path) -> Result<()> {
         .args(&args)
         .status()
         .map_err(|e| CliError::Docker(format!("Failed to execute docker compose down: {}", e)))?;
-
-    Ok(())
-}
-
-// fn build(worktree_path: &PathBuf) -> Result<()> {
-//     let abs_path = preferred_compose_paths(worktree_path);
-//     let abs_path_str = abs_path.to_string_lossy();
-//     //
-//     // Command::new("docker")
-//     //     .args([
-//     //         "compose",
-//     //         "-p",
-//     //         "minitol",
-//     //         "-f",
-//     //         &abs_path_str,
-//     //         "build",
-//     //         "--no-cache",
-//     //     ])
-//     //     .execute_interactive()
-// }
-
-fn run_lifecycle_commands(container_id: &str, devcontainer_path: &PathBuf) -> Result<()> {
-    let config_path = devcontainer_path.join("devcontainer.json");
-    let config = std::fs::read_to_string(&config_path)
-        .map_err(|e| CliError::Docker(format!("Failed to read devcontainer.json: {}", e)))?;
-
-    let config: serde_json::Value = serde_json::from_str(&config)
-        .map_err(|e| CliError::Docker(format!("Invalid devcontainer.json: {}", e)))?;
-
-    // Post-create command
-    if let Some(cmd) = config["postCreateCommand"].as_str() {
-        dexec(container_id, cmd)?;
-    }
-
-    // Post-start command (runs on every start)
-    if let Some(cmd) = config["postStartCommand"].as_str() {
-        dexec(container_id, cmd)?;
-    }
 
     Ok(())
 }
@@ -442,29 +405,7 @@ fn main() -> Result<()> {
             let worktree = dexec_capture(&container_id, "cat /tmp/worktree 2>/dev/null")?;
 
             println!("Worktree Path: {}", worktree.trim());
-        } // Commands::Exec { path } => {
-          //     let container_id = get_container_id("minitol-app");
-          //     todo!("Execute path");
-          // }
-
-          // Commands::Rebuild => {
-          //     let path = git_worktree_path()?;
-          //
-          //     // 1. Stop and remove existing containers
-          //     down(&path)?;
-          //
-          //     // 2. Rebuild with fresh images
-          //     build(&path)?;
-          //
-          //     // 3. Start new containers
-          //     let container_id = up(&path)?;
-          //
-          //     // 4. Execute lifecycle commands
-          //     let devcontainer_path = path.join(".devcontainer");
-          //     run_lifecycle_commands(&container_id, &devcontainer_path)?;
-          //
-          //     println!("Rebuild complete. New container ID: {}", container_id);
-          // }
+        }
     }
     Ok(())
 }
