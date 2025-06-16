@@ -15,8 +15,15 @@ quote=$(echo -e "$quote")
 # Output with borders and strict 79-column wrapping (including indentation)
 border="======================================================================="
 echo "$border"
-echo "“$quote”" | fold -s -w67 | sed 's/^/    /'
+echo "“$quote”" | fold -s -w64 | sed 's/^/    /'
 echo ""
-echo -e "— from *$title* by $author [:$line_number]" | fold -s -w67 | sed 's/^/    /'
+
+if [ -z "$title" ]; then
+    attribution_line="— by $author [:$line_number]"
+else
+    attribution_line="— from *$title* by $author [:$line_number]"
+fi
+
+echo "$attribution_line" | fold -s -w64 | sed 's/^/    /'
 echo "$border"
 
