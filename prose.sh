@@ -1,21 +1,22 @@
 #!/usr/bin/env bash
 
-# Pick a random line from the TSV
-line=$(shuf -n 1 ~/.prose.tsv)
+# Pick a random line from the TSV, including its line number
+# The output will be: line_number<tab>author<tab>title<tab>quote
+selected=$(awk '{print NR "\t" $0}' ~/.prose.tsv | shuf -n 1)
 
-# Extract author, title, and quote
-author=$(echo "$line" | cut -f1)
-title=$(echo "$line" | cut -f2)
-quote=$(echo "$line" | cut -f3)
+line_number=$(echo "$selected" | cut -f1)
+author=$(echo "$selected" | cut -f2)
+title=$(echo "$selected" | cut -f3)
+quote=$(echo "$selected" | cut -f4)
 
-# Replace literal '\n' with actual newlines (if needed)
+# Replace literal '\n' with actual newlines
 quote=$(echo -e "$quote")
 
 # Output with borders and strict 79-column wrapping (including indentation)
 border="======================================================================="
 echo "$border"
-echo "“$quote”" | fold -s -w64 | sed 's/^/    /'
+echo "“$quote”" | fold -s -w67 | sed 's/^/    /'
 echo ""
-echo -e "    — from *$title* by $author"
+echo -e "— from *$title* by $author [:$line_number]" | fold -s -w67 | sed 's/^/    /'
 echo "$border"
 
