@@ -232,30 +232,12 @@ fn up(worktree_path: &Path) -> Result<String> {
 
 fn down(worktree_path: &Path) -> Result<()> {
     let compose_paths = preferred_compose_paths(worktree_path);
+    let base_path = compose_paths
+        .first()
+        .ok_or_else(|| CliError::Docker("Could not find compose file".into()))?
+        .to_string_lossy();
 
-    // Existence check
-    for path in &compose_paths {
-        if !path.exists() {
-            return Err(CliError::Docker(format!(
-                "Compose file not found at: {}",
-                path.display()
-            )));
-        }
-    }
-
-    // Collect file paths as Strings
-    let file_strings: Vec<String> = compose_paths
-        .iter()
-        .map(|p| p.to_string_lossy().to_string())
-        .collect();
-
-    // Build args with all -f flags
-    let mut args = vec!["compose", "-p", "minitol"];
-    for file in &file_strings {
-        args.push("-f");
-        args.push(file);
-    }
-    args.push("down");
+    let args = vec!["compose", "-p", "minitol", "-f", &base_path, "down"];
 
     Command::new("docker")
         .args(&args)
@@ -354,8 +336,12 @@ fn main() -> Result<()> {
             dexec(&container_id, "start | tee /tmp/mt")?;
         }
         Commands::Stop => {
+            let path = &git_worktree_path()?;
             let container_id = get_container_id("minitol-app")?;
+            // First, call stop inside the container
             dexec(&container_id, "stop")?;
+            // Then call down on the compose stack
+            down(&path)?;
         }
         Commands::Sh { command } => {
             let container_id = get_container_id("minitol-app")?;
