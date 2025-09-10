@@ -247,6 +247,13 @@ fn down(worktree_path: &Path) -> Result<()> {
     Ok(())
 }
 
+fn login() -> Result<()> {
+    Command::new("docker")
+        .args(["login", "-u", "sndock", "docker.trionline.com.au"])
+        .status()?;
+    Ok(())
+}
+
 #[derive(clap::Parser)]
 #[command(
     author,
@@ -319,6 +326,8 @@ enum Commands {
     Logs,
     #[command(about = "Outputs information about the running development containers")]
     Info,
+    #[command(about = "Login to TriOnline Docker Registry")]
+    Login,
     // #[command(about = "Rebuilds the development container")]
     // Rebuild,
 }
@@ -382,6 +391,9 @@ fn main() -> Result<()> {
         Commands::Logs => {
             let container_id = get_container_id("minitol-app")?;
             dexec(&container_id, "tail -f /tmp/mt")?;
+        }
+        Commands::Login => {
+            login()?;
         }
         Commands::Info => {
             let container_id = get_container_id("minitol-app")?;
