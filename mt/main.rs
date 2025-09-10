@@ -254,6 +254,14 @@ fn login() -> Result<()> {
     Ok(())
 }
 
+/// Resets
+fn reset(container_id: &str) -> Result<()> {
+    dexec(&container_id, "mt clean")?;
+    dexec(&container_id, "rm -rf /typescript/node_modules")?;
+    dexec(&container_id, "mt install")?;
+    Ok(())
+}
+
 #[derive(clap::Parser)]
 #[command(
     author,
@@ -328,6 +336,8 @@ enum Commands {
     Info,
     #[command(about = "Login to TriOnline Docker Registry")]
     Login,
+    #[command(about = "Reset")]
+    Reset,
     // #[command(about = "Rebuilds the development container")]
     // Rebuild,
 }
@@ -394,6 +404,10 @@ fn main() -> Result<()> {
         }
         Commands::Login => {
             login()?;
+        }
+        Commands::Reset => {
+            let container_id = get_container_id("minitol-app")?;
+            reset(&container_id)?;
         }
         Commands::Info => {
             let container_id = get_container_id("minitol-app")?;
