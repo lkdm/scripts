@@ -1,11 +1,7 @@
 #!/usr/bin/env bash
 # Scans home directory for viruses on POSIX systems
 
-# Exit if running inside a Distrobox container
-if [[ -n "$CONTAINER_ID" ]]; then
-  echo "This script should not run inside a Distrobox container." >&2
-  exit 1
-fi
+set -euo pipefail
 
 HELP="You can install ClamAV using Homebrew with:\n\n  brew install clamav\n\nMake sure you have Homebrew installed first: https://brew.sh/"
 
@@ -19,5 +15,17 @@ mkdir -p "$LOG_DIR"
 # Update the virus descriptions database
 freshclam
 
-# Recursively scan directories that are writeable on Fedora Atomic distros
-clamscan --recursive --log="$LOG_DIR/scan.log" /tmp /var/tmp ~ /var/home/linuxbrew
+# Directories to scan
+SCAN_PATHS=(
+  "$HOME"
+  "/tmp"
+)
+
+echo "Starting virus scan..."
+
+# Run clamdscan on each directory individually (since it doesn't do recursion)
+for path in "${SCAN_PATHS[@]}"; do
+  find "$path" -type f -print0 | xargs -0 -r clamdscan --fdpass --multiscan --log="$LOG_DIR/scan.log"
+done
+
+echo "Scan complete. Log saved to: $LOG_DIR/scan.log"
