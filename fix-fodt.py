@@ -18,6 +18,22 @@ VARIABLE_REGEX = re.compile(r"\|[^|]+\|")  # matches |VariableName|
 
 # === FUNCTIONS ===
 
+LOEXT_NS = "urn:org:documentfoundation:names:experimental:office:xmlns:loext:1.0"
+def remove_loext_content_controls(root: etree._Element):
+    """
+    Removes write protection from section of the document
+    """
+    content_controls = root.findall(".//{%s}content-control" % LOEXT_NS)
+    for control in content_controls:
+        parent = control.getparent()
+        if parent is not None:
+            index = parent.index(control)
+            # Insert all children in place of the content-control
+            for child in reversed(control):
+                parent.insert(index, child)
+            # Remove the original loext:content-control tag
+            parent.remove(control)
+
 def flatten_text_within_variable(parent):
     """Flattens text within |Variable| markers by removing internal tags."""
     if parent.text:
@@ -82,6 +98,8 @@ def process_fodt(input_path: Path, output_path: Path):
     parser = etree.XMLParser(ns_clean=True, recover=True)
     tree = etree.parse(str(input_path), parser)
     root = tree.getroot()
+
+    remove_loext_content_controls(root)
 
     text_ns = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
     text_elements = root.findall(".//{%s}p" % text_ns)
