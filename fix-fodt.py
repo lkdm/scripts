@@ -35,64 +35,106 @@ def remove_loext_content_controls(root: etree._Element):
             parent.remove(control)
 
 def flatten_text_within_variable(parent):
-    """Flattens text within |Variable| markers by removing internal tags."""
+    """
+    Highlights |Variables| as flat spans without internal XML.
+    Preserves all other structure (bookmarks, hyperlinks, spans) outside the |...| blocks.
+    """
+    from copy import deepcopy
+
+    def collect_text_and_elements(elem, collected):
+        """
+        Recursively collects text with their corresponding elements.
+        """
+        if elem.text:
+            collected.append((elem.text, elem))
+        for child in elem:
+            collect_text_and_elements(child, collected)
+            if child.tail:
+                collected.append((child.tail, elem))
+
+    # Step 1: Flatten all text content with source elements
+    collected = []
     if parent.text:
-        # Search for all |Variable| matches in plain text
-        text = parent.text
-        new_content = []
-        last_index = 0
-        for match in VARIABLE_REGEX.finditer(text):
-            start, end = match.span()
-            # Add text before variable
-            if start > last_index:
-                new_content.append(text[last_index:start])
-            # Create span for variable
-            span = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
-                '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': HIGHLIGHT_STYLE
-            })
-            span.text = match.group()
-            new_content.append(span)
-            last_index = end
-        # Add remaining text
-        if last_index < len(text):
-            new_content.append(text[last_index:])
+        collected.append((parent.text, parent))
+    for child in parent:
+        collect_text_and_elements(child, collected)
+        if child.tail:
+            collected.append((child.tail, parent))
 
-        # Clear original paragraph
-        parent.text = None
-        parent[:] = []
+    full_text = "".join(text for text, _ in collected)
+    matches = list(VARIABLE_REGEX.finditer(full_text))
+    if not matches:
+        return  # No variables found
 
-        # Append new content
-        for item in new_content:
-            if isinstance(item, str):
-                if parent.text is None:
-                    parent.text = item
+    # Step 2: Reconstruct content
+    new_children = []
+    cursor = 0
+    var_index = 0
+
+    def append_text_as_cloned_structure(start_idx, end_idx):
+        """
+        Appends text from start to end by walking `collected` pieces and preserving structure.
+        """
+        nonlocal cursor
+        remaining = end_idx - start_idx
+        offset = 0
+        while remaining > 0 and cursor < len(collected):
+            text, src_elem = collected[cursor]
+            if offset + len(text) <= start_idx:
+                offset += len(text)
+                cursor += 1
+                continue
+            take_from = max(0, start_idx - offset)
+            take_to = min(len(text), end_idx - offset)
+            subtext = text[take_from:take_to]
+
+            if subtext:
+                if src_elem.tag.endswith("p"):
+                    # Direct paragraph text
+                    if new_children and isinstance(new_children[-1], str):
+                        new_children[-1] += subtext
+                    else:
+                        new_children.append(subtext)
                 else:
-                    # Create a dummy span to carry leftover text
-                    tail_span = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span")
-                    tail_span.text = item
-                    parent.append(tail_span)
-            else:
-                parent.append(item)
+                    # Clone structure
+                    clone = deepcopy(src_elem)
+                    clone.text = subtext
+                    clone[:] = []
+                    new_children.append(clone)
 
-    else:
-        # Handle nested spans that may split a variable
-        text_buffer = ""
-        spans_to_remove = []
-        for child in list(parent):
-            if child.tag.endswith("span"):
-                if child.text:
-                    text_buffer += child.text
-                    spans_to_remove.append(child)
-        if "|" in text_buffer:
-            matches = VARIABLE_REGEX.findall(text_buffer)
-            for span in spans_to_remove:
-                parent.remove(span)
-            for match in matches:
-                new_span = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
-                    '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': HIGHLIGHT_STYLE
-                })
-                new_span.text = match
-                parent.append(new_span)
+            remaining -= (take_to - take_from)
+            offset += len(text)
+            cursor += 1
+
+    current = 0
+    for match in matches:
+        start, end = match.span()
+        # Append content before variable (preserve formatting)
+        append_text_as_cloned_structure(current, start)
+
+        # Insert clean span with just the variable text
+        clean_span = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
+            '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': HIGHLIGHT_STYLE
+        })
+        clean_span.text = match.group()
+        new_children.append(clean_span)
+
+        current = end
+
+    # Append content after last match
+    append_text_as_cloned_structure(current, len(full_text))
+
+    # Step 3: Clear and rebuild paragraph
+    parent.text = None
+    parent.clear()
+    for node in new_children:
+        if isinstance(node, str):
+            if parent.text:
+                parent.text += node
+            else:
+                parent.text = node
+        else:
+            parent.append(node)
 
 def process_fodt(input_path: Path, output_path: Path):
     parser = etree.XMLParser(ns_clean=True, recover=True)
