@@ -74,6 +74,7 @@ def flatten_text_within_variable(parent):
     def append_text_as_cloned_structure(start_idx, end_idx):
         """
         Appends text from start to end by walking `collected` pieces and preserving structure.
+        Restores highlight (e.g. grey) if original text had a style-name attribute.
         """
         nonlocal cursor
         remaining = end_idx - start_idx
@@ -96,16 +97,26 @@ def flatten_text_within_variable(parent):
                     else:
                         new_children.append(subtext)
                 else:
-                    # Clone structure
+                    # Clone original element (e.g., span or bookmark-ref)
                     clone = deepcopy(src_elem)
                     clone.text = subtext
-                    clone[:] = []
-                    new_children.append(clone)
+                    clone[:] = []  # Clear children
+
+                    # 🟡 Special: if it's not a <text:span>, and has no style, wrap it in a styled span
+                    style_name = clone.attrib.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name")
+                    if clone.tag != "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span" and not style_name:
+                        # Wrap in span to re-apply style (e.g., grey highlight)
+                        span_wrapper = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
+                            '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': "T28"  # grey highlight style
+                        })
+                        span_wrapper.append(clone)
+                        new_children.append(span_wrapper)
+                    else:
+                        new_children.append(clone)
 
             remaining -= (take_to - take_from)
             offset += len(text)
             cursor += 1
-
     current = 0
     for match in matches:
         start, end = match.span()
@@ -180,7 +191,8 @@ def inject_highlight_style(root):
         f"{{{style_ns}}}family": "text"
     })
     text_props = etree.Element(f"{{{style_ns}}}text-properties", {
-        f"{{{fo_ns}}}background-color": "#ffff00"
+        f"{{{fo_ns}}}background-color": "#ffff00",
+        f"{{{fo_ns}}}font-size": "10pt"
     })
     style_element.append(text_props)
 
