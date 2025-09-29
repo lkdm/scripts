@@ -21,9 +21,48 @@ from pathlib import Path
 # 4. All |VariableName| should be 10pt and highlighted yellow (so I can visually confirm that it worked) (DONE: See inject_highlight_style)
 # Biggest problem currently is that flatten_text_within_variable does not work correctly
 
+
+
 # === CONFIGURATION ===
 HIGHLIGHT_STYLE = "HighlightYellow" # Yellow highlight
 VARIABLE_REGEX = re.compile(r"\|[^|]+\|")  # matches |VariableName|
+
+
+def print_help():
+    help_text = """
+tfac - templated facility agreement cleaner
+===========================================
+
+Fixes common problems that occur while templating facility agreement documents.
+
+Usage:
+    script.py <input.fodt> [output.fodt]
+
+Arguments:
+    <input.fodt>     Path to the input Flat ODF Text document.
+    [output.fodt]    Optional path for the processed output file.
+                     If not provided, a new file will be created alongside
+                     the input with '_processed' appended to the name.
+
+Options:
+    -h, --help       Show this help message and exit.
+
+Steps:
+    1. Convert Facilty Agreement in .docx format to .fodt
+    2. Insert templated variables surrounded by pipes (example: `|TemplateVariables|`)
+    3. Run this script on the templated fodt.
+    4. Check output, and convert back to docx for upload to TriOnline
+
+Features:
+    • Removes LibreOffice-specific write protection tags (<loext:content-control>).
+    • Ensures variables like |VariableName| are kept in a single <text:span>.
+    • Applies a 'HighlightYellow' style (yellow background, 10pt font).
+    • Preserves all paragraph-level attributes and structure outside variables.
+
+Example:
+    script.py mydoc.fodt mydoc_processed.fodt
+"""
+    print(help_text)
 
 # === FUNCTIONS ===
 
@@ -167,6 +206,10 @@ def inject_highlight_style(root):
 
 # === ENTRY POINT ===
 if __name__ == "__main__":
+    if "-h" in sys.argv or "--help" in sys.argv:
+        print_help()
+        sys.exit(0)
+
     if len(sys.argv) < 2:
         print("❌ Usage: script.py <input.fodt> [output.fodt]")
         sys.exit(1)
