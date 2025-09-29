@@ -6,21 +6,15 @@
 # ]
 # ///
 
-from lxml.etree import Element, SubElement, XMLParser, parse, ElementTree
+# fix-agreement
+# 
+# Takes a Facility agreement in .fodt format.
+# 
+
 import lxml.etree as etree
 import sys
 import re
 from pathlib import Path
-
-# Steps
-# 1. Every odd | is the start of a variable, and every even | is the end of the variable name.
-#   a. This means the entire |VariableName| should be in one tag, not split.
-#   c. So first step, is ensure no tags are within odd | and even |.
-# 2. All locked/protected inputs should be unlocked (DONE: See remove_loext_content_controls)
-# 3. |VariableName| should be wrapped in left align, not justify (not done, make separate function, to call from inject_highlight_style)
-# 4. All |VariableName| should be 10pt and highlighted yellow (so I can visually confirm that it worked) (DONE: See inject_highlight_style)
-# Biggest problem currently is that flatten_text_within_variable does not work correctly
-
 
 
 # === CONFIGURATION ===
