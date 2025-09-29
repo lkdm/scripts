@@ -12,6 +12,15 @@ import sys
 import re
 from pathlib import Path
 
+# Steps
+# 1. Every odd | is the start of a variable, and every even | is the end of the variable name.
+#   a. This means the entire |VariableName| should be in one tag, not split.
+#   c. So first step, is ensure no tags are within odd | and even |.
+# 2. All locked/protected inputs should be unlocked (DONE: See remove_loext_content_controls)
+# 3. |VariableName| should be wrapped in left align, not justify (not done, make separate function, to call from inject_highlight_style)
+# 4. All |VariableName| should be 10pt and highlighted yellow (so I can visually confirm that it worked) (DONE: See inject_highlight_style)
+# Biggest problem currently is that flatten_text_within_variable does not work correctly
+
 # === CONFIGURATION ===
 HIGHLIGHT_STYLE = "HighlightYellow" # Yellow highlight
 VARIABLE_REGEX = re.compile(r"\|[^|]+\|")  # matches |VariableName|
@@ -34,118 +43,75 @@ def remove_loext_content_controls(root: etree._Element):
             # Remove the original loext:content-control tag
             parent.remove(control)
 
-def flatten_text_within_variable(parent):
+def flatten_text_within_variable(paragraph):
     """
-    Highlights |Variables| as flat spans without internal XML.
-    Preserves all other structure (bookmarks, hyperlinks, spans) outside the |...| blocks.
+    Finds and flattens |VariableName| markers inside a paragraph (<text:p>).
+    Each variable is wrapped in a dedicated <text:span> with the highlight style.
+    Preserves the paragraph’s attributes, but strips conflicting nested runs.
     """
-    from copy import deepcopy
+    text_ns = "urn:oasis:names:tc:opendocument:xmlns:text:1.0"
 
-    def collect_text_and_elements(elem, collected):
-        """
-        Recursively collects text with their corresponding elements.
-        """
+    # Extract all paragraph text (including nested spans/bookmarks/tails)
+    def get_full_text(elem):
+        parts = []
         if elem.text:
-            collected.append((elem.text, elem))
+            parts.append(elem.text)
         for child in elem:
-            collect_text_and_elements(child, collected)
+            parts.append(get_full_text(child))
             if child.tail:
-                collected.append((child.tail, elem))
+                parts.append(child.tail)
+        return "".join(parts)
 
-    # Step 1: Flatten all text content with source elements
-    collected = []
-    if parent.text:
-        collected.append((parent.text, parent))
-    for child in parent:
-        collect_text_and_elements(child, collected)
-        if child.tail:
-            collected.append((child.tail, parent))
-
-    full_text = "".join(text for text, _ in collected)
+    full_text = get_full_text(paragraph)
     matches = list(VARIABLE_REGEX.finditer(full_text))
     if not matches:
-        return  # No variables found
+        return
 
-    # Step 2: Reconstruct content
+    # Prepare rebuilt children
     new_children = []
     cursor = 0
-    var_index = 0
-
-    def append_text_as_cloned_structure(start_idx, end_idx):
-        """
-        Appends text from start to end by walking `collected` pieces and preserving structure.
-        Restores highlight (e.g. grey) if original text had a style-name attribute.
-        """
-        nonlocal cursor
-        remaining = end_idx - start_idx
-        offset = 0
-        while remaining > 0 and cursor < len(collected):
-            text, src_elem = collected[cursor]
-            if offset + len(text) <= start_idx:
-                offset += len(text)
-                cursor += 1
-                continue
-            take_from = max(0, start_idx - offset)
-            take_to = min(len(text), end_idx - offset)
-            subtext = text[take_from:take_to]
-
-            if subtext:
-                if src_elem.tag.endswith("p"):
-                    # Direct paragraph text
-                    if new_children and isinstance(new_children[-1], str):
-                        new_children[-1] += subtext
-                    else:
-                        new_children.append(subtext)
-                else:
-                    # Clone original element (e.g., span or bookmark-ref)
-                    clone = deepcopy(src_elem)
-                    clone.text = subtext
-                    clone[:] = []  # Clear children
-
-                    # 🟡 Special: if it's not a <text:span>, and has no style, wrap it in a styled span
-                    style_name = clone.attrib.get("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name")
-                    if clone.tag != "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span" and not style_name:
-                        # Wrap in span to re-apply style (e.g., grey highlight)
-                        span_wrapper = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
-                            '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': "T28"  # grey highlight style
-                        })
-                        span_wrapper.append(clone)
-                        new_children.append(span_wrapper)
-                    else:
-                        new_children.append(clone)
-
-            remaining -= (take_to - take_from)
-            offset += len(text)
-            cursor += 1
-    current = 0
     for match in matches:
         start, end = match.span()
-        # Append content before variable (preserve formatting)
-        append_text_as_cloned_structure(current, start)
+        # Add plain text before variable
+        if start > cursor:
+            pre = full_text[cursor:start]
+            if pre:
+                new_children.append(pre)
 
-        # Insert clean span with just the variable text
-        clean_span = etree.Element("{urn:oasis:names:tc:opendocument:xmlns:text:1.0}span", {
-            '{urn:oasis:names:tc:opendocument:xmlns:text:1.0}style-name': HIGHLIGHT_STYLE
+        # Add variable span
+        span = etree.Element(f"{{{text_ns}}}span", {
+            f"{{{text_ns}}}style-name": HIGHLIGHT_STYLE
         })
-        clean_span.text = match.group()
-        new_children.append(clean_span)
+        span.text = match.group()
+        new_children.append(span)
 
-        current = end
+        cursor = end
 
-    # Append content after last match
-    append_text_as_cloned_structure(current, len(full_text))
+    # Add trailing text
+    if cursor < len(full_text):
+        new_children.append(full_text[cursor:])
 
-    # Step 3: Clear and rebuild paragraph
-    parent.text = None
-    parent.clear()
+    # Remove old children but keep paragraph attributes
+    for child in list(paragraph):
+        paragraph.remove(child)
+
+    # Reattach content
+    paragraph.text = None
+    first = True
     for node in new_children:
         if isinstance(node, str):
-            if parent.text:
-                parent.text += node
+            if first:
+                paragraph.text = node
+                first = False
             else:
-                parent.text = node
+                # Wrap extra text in a simple span so it isn’t lost
+                span = etree.Element(f"{{{text_ns}}}span")
+                span.text = node
+                paragraph.append(span)
         else:
-            parent.append(node)
+            paragraph.append(node)
+            first = False
+
 
 def process_fodt(input_path: Path, output_path: Path):
     parser = etree.XMLParser(ns_clean=True, recover=True)
