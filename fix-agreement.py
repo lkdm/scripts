@@ -198,6 +198,7 @@ def inject_highlight_style(root):
     # Append to automatic styles
     auto_styles.append(style_element)
 
+
 # === ENTRY POINT ===
 if __name__ == "__main__":
     if "-h" in sys.argv or "--help" in sys.argv:
