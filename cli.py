@@ -23,6 +23,7 @@ from typing import Annotated
 # If run did not return 0 or 1, you should raise a RuntimeError
 
 
+
 app = typer.Typer(
     no_args_is_help=True
 )
